@@ -3,9 +3,10 @@ import {
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword,
   signOut,
-  onAuthStateChanged
+  onAuthStateChanged,
+  signInWithPopup
 } from 'firebase/auth';
-import { auth } from '../config/firebase';
+import { auth, googleProvider } from '../config/firebase';
 import axios from 'axios';
 
 const AuthContext = createContext();
@@ -35,6 +36,35 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     return signInWithEmailAndPassword(auth, email, password);
+  };
+
+  const loginWithGoogle = async (role = 'student') => {
+    const userCredential = await signInWithPopup(auth, googleProvider);
+    const token = await userCredential.user.getIdToken();
+    
+    // Check if user exists in backend, if not register them
+    try {
+      const response = await axios.get(`${API_URL}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setUserProfile(response.data.user);
+      return userCredential;
+    } catch (error) {
+      // User doesn't exist in backend, register them
+      if (error.response?.status === 404 || error.response?.status === 401) {
+        const response = await axios.post(`${API_URL}/auth/register`, 
+          { 
+            email: userCredential.user.email, 
+            name: userCredential.user.displayName || userCredential.user.email.split('@')[0], 
+            role 
+          },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        setUserProfile(response.data.user);
+        return userCredential;
+      }
+      throw error;
+    }
   };
 
   const logout = () => {
@@ -78,6 +108,7 @@ export const AuthProvider = ({ children }) => {
     userProfile,
     signup,
     login,
+    loginWithGoogle,
     logout,
     getAuthToken,
   };
