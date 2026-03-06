@@ -138,6 +138,15 @@ const submissionSchema = new mongoose.Schema({
 submissionSchema.pre("save", function (next) {
   if (this.maxScore > 0) {
     this.percentage = Math.round((this.score / this.maxScore) * 100);
+  } else {
+    this.percentage = 0;
+  }
+  // Guard against NaN
+  if (isNaN(this.percentage)) {
+    this.percentage = 0;
+  }
+  if (isNaN(this.score)) {
+    this.score = 0;
   }
   next();
 });

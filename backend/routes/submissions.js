@@ -240,11 +240,13 @@ router.post("/", submissionLimiter, verifyFirebaseToken, async (req, res) => {
       status: "submitted",
     });
     const avgScore =
-      allSubmissions.reduce((sum, s) => sum + s.percentage, 0) /
-      allSubmissions.length;
+      allSubmissions.length > 0
+        ? allSubmissions.reduce((sum, s) => sum + (s.percentage || 0), 0) /
+          allSubmissions.length
+        : 0;
     await Exam.findByIdAndUpdate(examId, {
       totalSubmissions: allSubmissions.length,
-      averageScore: Math.round(avgScore),
+      averageScore: Math.round(avgScore) || 0,
     });
 
     // Create notification for student
@@ -353,11 +355,24 @@ router.get("/my-submissions", verifyFirebaseToken, async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    const submissions = await Submission.find({ studentId: user._id })
+    const submissions = await Submission.find({
+      studentId: user._id,
+      status: { $in: ["submitted", "graded"] },
+    })
       .populate("examId", "title description duration settings")
-      .sort({ submittedAt: -1 });
+      .sort({ submittedAt: -1 })
+      .lean();
 
-    res.json({ submissions });
+    // Filter out submissions with deleted exams and sanitize data
+    const cleanSubmissions = submissions
+      .filter((s) => s.examId != null)
+      .map((s) => ({
+        ...s,
+        percentage: isNaN(s.percentage) ? 0 : s.percentage,
+        score: isNaN(s.score) ? 0 : s.score,
+      }));
+
+    res.json({ submissions: cleanSubmissions });
   } catch (error) {
     console.error("Error getting submissions:", error);
     res.status(500).json({ message: "Server error", error: error.message });
