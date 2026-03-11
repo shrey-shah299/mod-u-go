@@ -21,6 +21,10 @@ const CreateExam = () => {
       options: ["", "", "", ""],
       correctAnswer: "",
       points: 1,
+      constraints: {
+        wordLimit: null,
+        difficultyLevel: "medium",
+      },
     },
   ]);
   const [settings, setSettings] = useState({
@@ -61,6 +65,10 @@ const CreateExam = () => {
           options: q.options?.length > 0 ? q.options : ["", "", "", ""],
           correctAnswer: q.correctAnswer,
           points: q.points || 1,
+          constraints: q.constraints || {
+            wordLimit: null,
+            difficultyLevel: "medium",
+          },
         })),
       );
       if (exam.settings) {
@@ -87,6 +95,10 @@ const CreateExam = () => {
         options: ["", "", "", ""],
         correctAnswer: "",
         points: 1,
+        constraints: {
+          wordLimit: null,
+          difficultyLevel: "medium",
+        },
       },
     ]);
   };
@@ -133,6 +145,18 @@ const CreateExam = () => {
       updatedQuestions[qIndex].options.splice(optIndex, 1);
       setQuestions(updatedQuestions);
     }
+  };
+
+  const updateConstraint = (index, field, value) => {
+    const updatedQuestions = [...questions];
+    if (!updatedQuestions[index].constraints) {
+      updatedQuestions[index].constraints = {
+        wordLimit: null,
+        difficultyLevel: "medium",
+      };
+    }
+    updatedQuestions[index].constraints[field] = value;
+    setQuestions(updatedQuestions);
   };
 
   const handleSubmit = async (e) => {
@@ -187,6 +211,10 @@ const CreateExam = () => {
               : [],
           correctAnswer: q.correctAnswer,
           points: q.points,
+          constraints: q.constraints || {
+            wordLimit: null,
+            difficultyLevel: "medium",
+          },
         })),
       };
 
@@ -457,7 +485,7 @@ const CreateExam = () => {
                 </div>
 
                 <div className="form-group" style={{ flex: 1 }}>
-                  <label>Points</label>
+                  <label>Points (Marks)</label>
                   <input
                     type="number"
                     value={question.points}
@@ -471,7 +499,40 @@ const CreateExam = () => {
                     min="1"
                   />
                 </div>
+
+                <div className="form-group" style={{ flex: 1 }}>
+                  <label>Difficulty Level</label>
+                  <select
+                    value={question.constraints?.difficultyLevel || "medium"}
+                    onChange={(e) =>
+                      updateConstraint(qIndex, "difficultyLevel", e.target.value)
+                    }
+                  >
+                    <option value="easy">Easy</option>
+                    <option value="medium">Medium</option>
+                    <option value="hard">Hard</option>
+                  </select>
+                </div>
               </div>
+
+              {(question.type === "short_answer" || question.type === "essay") && (
+                <div className="form-group">
+                  <label>Word Limit (Optional)</label>
+                  <input
+                    type="number"
+                    value={question.constraints?.wordLimit || ""}
+                    onChange={(e) =>
+                      updateConstraint(
+                        qIndex,
+                        "wordLimit",
+                        e.target.value ? parseInt(e.target.value) : null,
+                      )
+                    }
+                    placeholder="Leave empty for no limit"
+                    min="1"
+                  />
+                </div>
+              )}
 
               <div className="form-group">
                 <label>Question Text *</label>

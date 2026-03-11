@@ -30,6 +30,18 @@ const questionSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  // Question constraints
+  constraints: {
+    wordLimit: {
+      type: Number,
+      default: null, // No limit if null (applicable for essay, short_answer)
+    },
+    difficultyLevel: {
+      type: String,
+      enum: ["easy", "medium", "hard"],
+      default: "medium",
+    },
+  },
 });
 
 const examSchema = new mongoose.Schema({

@@ -439,8 +439,39 @@ const TakeExam = () => {
     }));
   };
 
+  const getWordCount = (text) => {
+    return text ? text.trim().split(/\s+/).filter(word => word.length > 0).length : 0;
+  };
+
+  const validateWordLimits = () => {
+    for (let i = 0; i < exam.questions.length; i++) {
+      const q = exam.questions[i];
+      // Only validate word limits for short_answer and essay questions
+      if ((q.type === "short_answer" || q.type === "essay") && q.constraints?.wordLimit) {
+        const answer = answers[q._id] || "";
+        const wordCount = getWordCount(answer);
+        if (wordCount > q.constraints.wordLimit) {
+          return {
+            valid: false,
+            message: `Question ${i + 1} exceeds word limit of ${q.constraints.wordLimit} words (current: ${wordCount} words)`,
+          };
+        }
+      }
+    }
+    return { valid: true };
+  };
+
   const handleSubmit = async (autoSubmit = false) => {
     if (submitting) return;
+
+    // Validate word limits
+    if (!autoSubmit) {
+      const wordLimitValidation = validateWordLimits();
+      if (!wordLimitValidation.valid) {
+        alert(wordLimitValidation.message);
+        return;
+      }
+    }
 
     if (!autoSubmit) {
       const unansweredCount = Object.values(answers).filter(
@@ -652,6 +683,20 @@ const TakeExam = () => {
             Question {currentQuestion + 1} of {exam.questions.length} (
             {currentQ.points} pt{currentQ.points !== 1 ? "s" : ""})
           </h3>
+          
+          {currentQ.constraints && (
+            <div className="question-constraints">
+              <span className={`constraint-badge difficulty-${currentQ.constraints.difficultyLevel}`}>
+                {currentQ.constraints.difficultyLevel.charAt(0).toUpperCase() + currentQ.constraints.difficultyLevel.slice(1)}
+              </span>
+              {currentQ.type !== "mcq" && currentQ.type !== "fill_blank" && currentQ.constraints.wordLimit && (
+                <span className="constraint-badge word-limit">
+                  Max {currentQ.constraints.wordLimit} words
+                </span>
+              )}
+            </div>
+          )}
+          
           <p className="question-text">{currentQ.question}</p>
 
           {currentQ.type === "mcq" && (
@@ -693,13 +738,22 @@ const TakeExam = () => {
           )}
 
           {(currentQ.type === "short_answer" || currentQ.type === "essay") && (
-            <textarea
-              className="answer-input"
-              value={answers[currentQ._id] || ""}
-              onChange={(e) => handleAnswerChange(currentQ._id, e.target.value)}
-              placeholder="Type your answer here..."
-              rows={currentQ.type === "essay" ? 8 : 4}
-            />
+            <div className="text-input-container">
+              <textarea
+                key={`answer-${currentQ._id}`}
+                className="answer-input"
+                value={answers[currentQ._id] || ""}
+                onChange={(e) => handleAnswerChange(currentQ._id, e.target.value)}
+                placeholder="Type your answer here..."
+                rows={currentQ.type === "essay" ? 8 : 4}
+              />
+              <div className="word-count-info">
+                <span className={`word-count ${getWordCount(answers[currentQ._id]) > (currentQ.constraints?.wordLimit || Infinity) ? 'exceeded' : ''}`}>
+                  Words: {getWordCount(answers[currentQ._id])}
+                  {currentQ.constraints?.wordLimit && ` / ${currentQ.constraints.wordLimit}`}
+                </span>
+              </div>
+            </div>
           )}
 
           {currentQ.type === "fill_blank" && (
