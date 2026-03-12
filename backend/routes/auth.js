@@ -2,8 +2,18 @@ const express = require("express");
 const router = express.Router();
 const crypto = require("crypto");
 const User = require("../models/User");
+const RegistrationAttempt = require("../models/RegistrationAttempt");
+const LoginAttempt = require("../models/LoginAttempt");
+const Notification = require("../models/Notification");
 const verifyFirebaseToken = require("../middleware/auth");
 const { authLimiter } = require("../middleware/rateLimiter");
+
+const MAX_REGISTRATION_ATTEMPTS = 3;
+const REGISTRATION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+const MAX_LOGIN_FAILURES = 5;
+const LOGIN_LOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+const ADMIN_ALERT_THRESHOLD = 10;
+const ADMIN_ALERT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
 // Generate 2FA secret
 const generate2FASecret = () => {
@@ -22,7 +32,7 @@ const generateTOTP = (secret) => {
   return code.toString().padStart(6, "0");
 };
 
-// Register or login user
+// Register or login user (REQ-18: max 3 registration attempts per email per 24h)
 router.post("/register", authLimiter, verifyFirebaseToken, async (req, res) => {
   try {
     const { email, name, role } = req.body;
@@ -36,6 +46,34 @@ router.post("/register", authLimiter, verifyFirebaseToken, async (req, res) => {
       await user.save();
       return res.json({ user, message: "User already exists" });
     }
+
+    // Check registration attempts for this email
+    const windowStart = new Date(Date.now() - REGISTRATION_WINDOW_MS);
+    const attemptCount = await RegistrationAttempt.countDocuments({
+      email: email.toLowerCase(),
+      attemptedAt: { $gte: windowStart },
+    });
+
+    if (attemptCount >= MAX_REGISTRATION_ATTEMPTS) {
+      // Find the oldest attempt in the window to calculate when it expires
+      const oldestAttempt = await RegistrationAttempt.findOne({
+        email: email.toLowerCase(),
+        attemptedAt: { $gte: windowStart },
+      }).sort({ attemptedAt: 1 });
+
+      const retryAfter = new Date(oldestAttempt.attemptedAt.getTime() + REGISTRATION_WINDOW_MS);
+      const remainingMs = retryAfter.getTime() - Date.now();
+
+      return res.status(429).json({
+        message: "Too many registration attempts. Please try again later.",
+        locked: true,
+        retryAfter: retryAfter.toISOString(),
+        remainingMs,
+      });
+    }
+
+    // Record this registration attempt
+    await RegistrationAttempt.create({ email: email.toLowerCase() });
 
     // Validate role
     const validRoles = ["student", "teacher", "proctor", "admin"];
@@ -247,6 +285,194 @@ router.get("/2fa/status", verifyFirebaseToken, async (req, res) => {
     });
   } catch (error) {
     console.error("Error checking 2FA status:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
+// ─── REQ-18: Check registration lock status ─────────────────────────
+router.post("/check-registration", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const windowStart = new Date(Date.now() - REGISTRATION_WINDOW_MS);
+    const attemptCount = await RegistrationAttempt.countDocuments({
+      email: email.toLowerCase(),
+      attemptedAt: { $gte: windowStart },
+    });
+
+    if (attemptCount >= MAX_REGISTRATION_ATTEMPTS) {
+      const oldestAttempt = await RegistrationAttempt.findOne({
+        email: email.toLowerCase(),
+        attemptedAt: { $gte: windowStart },
+      }).sort({ attemptedAt: 1 });
+
+      const retryAfter = new Date(oldestAttempt.attemptedAt.getTime() + REGISTRATION_WINDOW_MS);
+      const remainingMs = retryAfter.getTime() - Date.now();
+
+      return res.status(429).json({
+        locked: true,
+        attemptsUsed: attemptCount,
+        maxAttempts: MAX_REGISTRATION_ATTEMPTS,
+        retryAfter: retryAfter.toISOString(),
+        remainingMs,
+        message: "Too many registration attempts. Please try again later.",
+      });
+    }
+
+    res.json({
+      locked: false,
+      attemptsUsed: attemptCount,
+      maxAttempts: MAX_REGISTRATION_ATTEMPTS,
+      remainingAttempts: MAX_REGISTRATION_ATTEMPTS - attemptCount,
+    });
+  } catch (error) {
+    console.error("Error checking registration status:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
+// ─── REQ-19: Check login lock status ────────────────────────────────
+router.post("/login-status", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+
+    if (!user) {
+      // Don't reveal whether email exists
+      return res.json({ locked: false });
+    }
+
+    if (user.accountLockedUntil && user.accountLockedUntil > new Date()) {
+      const remainingMs = user.accountLockedUntil.getTime() - Date.now();
+      return res.status(423).json({
+        locked: true,
+        lockedUntil: user.accountLockedUntil.toISOString(),
+        remainingMs,
+        message: "Account is temporarily locked due to too many failed login attempts.",
+      });
+    }
+
+    res.json({
+      locked: false,
+      failedAttempts: user.failedLoginAttempts,
+      maxAttempts: MAX_LOGIN_FAILURES,
+    });
+  } catch (error) {
+    console.error("Error checking login status:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
+// ─── REQ-19: Record login failure ───────────────────────────────────
+router.post("/login-failure", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    // Record in LoginAttempt collection (for hourly tracking)
+    await LoginAttempt.create({ email: email.toLowerCase(), success: false });
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.json({ message: "Failure recorded" });
+    }
+
+    // If currently locked, just return lock info
+    if (user.accountLockedUntil && user.accountLockedUntil > new Date()) {
+      const remainingMs = user.accountLockedUntil.getTime() - Date.now();
+      return res.status(423).json({
+        locked: true,
+        lockedUntil: user.accountLockedUntil.toISOString(),
+        remainingMs,
+        message: "Account is temporarily locked due to too many failed login attempts.",
+      });
+    }
+
+    // Increment failure count
+    user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
+
+    // Lock after 5 consecutive failures
+    if (user.failedLoginAttempts >= MAX_LOGIN_FAILURES) {
+      user.accountLockedUntil = new Date(Date.now() + LOGIN_LOCK_DURATION_MS);
+      await user.save();
+
+      const remainingMs = user.accountLockedUntil.getTime() - Date.now();
+      // Check for persistent failures (>10 in 1 hour) → admin alert
+      const hourAgo = new Date(Date.now() - ADMIN_ALERT_WINDOW_MS);
+      const hourlyFailures = await LoginAttempt.countDocuments({
+        email: email.toLowerCase(),
+        success: false,
+        attemptedAt: { $gte: hourAgo },
+      });
+
+      if (hourlyFailures >= ADMIN_ALERT_THRESHOLD) {
+        // Send alert to all admin users
+        const admins = await User.find({ role: "admin" });
+        const notifications = admins.map((admin) => ({
+          userId: admin._id,
+          type: "account_update",
+          title: "Suspicious Login Activity",
+          message: `Account ${email} has had ${hourlyFailures} failed login attempts in the last hour. The account has been temporarily locked.`,
+          priority: "urgent",
+        }));
+        if (notifications.length > 0) {
+          await Notification.insertMany(notifications);
+        }
+      }
+
+      return res.status(423).json({
+        locked: true,
+        lockedUntil: user.accountLockedUntil.toISOString(),
+        remainingMs,
+        failedAttempts: user.failedLoginAttempts,
+        message: "Account locked for 15 minutes due to too many failed login attempts.",
+      });
+    }
+
+    await user.save();
+
+    res.json({
+      locked: false,
+      failedAttempts: user.failedLoginAttempts,
+      maxAttempts: MAX_LOGIN_FAILURES,
+      remainingAttempts: MAX_LOGIN_FAILURES - user.failedLoginAttempts,
+      message: `Login failed. ${MAX_LOGIN_FAILURES - user.failedLoginAttempts} attempt(s) remaining before account lock.`,
+    });
+  } catch (error) {
+    console.error("Error recording login failure:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
+// ─── REQ-19: Record login success (reset failure count) ─────────────
+router.post("/login-success", verifyFirebaseToken, async (req, res) => {
+  try {
+    const user = await User.findOne({ firebaseUid: req.user.uid });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Reset failure tracking on successful login
+    user.failedLoginAttempts = 0;
+    user.accountLockedUntil = null;
+    user.lastLogin = new Date();
+    await user.save();
+
+    // Record successful login attempt
+    await LoginAttempt.create({ email: user.email.toLowerCase(), success: true });
+
+    res.json({ message: "Login success recorded" });
+  } catch (error) {
+    console.error("Error recording login success:", error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 });

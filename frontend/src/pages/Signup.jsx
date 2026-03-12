@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useNavigate, Link } from "react-router-dom";
 import "./Auth.css";
@@ -11,11 +11,48 @@ const Signup = () => {
   const [role, setRole] = useState("student");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { signup, loginWithGoogle } = useAuth();
+  const [lockData, setLockData] = useState(null);
+  const [countdown, setCountdown] = useState(null);
+  const timerRef = useRef(null);
+  const { signup, loginWithGoogle, checkRegistrationLock } = useAuth();
   const navigate = useNavigate();
+
+  // Countdown timer for registration lock
+  useEffect(() => {
+    if (lockData?.locked && lockData?.remainingMs > 0) {
+      setCountdown(Math.ceil(lockData.remainingMs / 1000));
+
+      timerRef.current = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current);
+            setLockData(null);
+            setError("");
+            return null;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      return () => clearInterval(timerRef.current);
+    }
+  }, [lockData]);
+
+  const formatCountdown = (seconds) => {
+    if (!seconds) return "";
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    if (hours > 0) {
+      return `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    }
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (lockData?.locked) return;
 
     // Validation
     if (password !== confirmPassword) {
@@ -36,21 +73,47 @@ const Signup = () => {
       await signup(email, password, name.trim(), role);
       navigate("/dashboard");
     } catch (error) {
-      let errorMessage = "Failed to create account";
-      if (error.code === "auth/email-already-in-use") {
-        errorMessage = "Email is already registered";
-      } else if (error.code === "auth/weak-password") {
-        errorMessage = "Password is too weak";
-      } else if (error.code === "auth/invalid-email") {
-        errorMessage = "Invalid email address";
-      } else if (error.message) {
-        errorMessage = error.message;
+      if (error.lockData) {
+        setLockData(error.lockData);
+        setError(error.message);
+      } else {
+        let errorMessage = "Failed to create account";
+        if (error.code === "auth/email-already-in-use") {
+          errorMessage = "Email is already registered";
+        } else if (error.code === "auth/weak-password") {
+          errorMessage = "Password is too weak";
+        } else if (error.code === "auth/invalid-email") {
+          errorMessage = "Invalid email address";
+        } else if (error.message) {
+          errorMessage = error.message;
+        }
+        setError(errorMessage);
       }
-      setError(errorMessage);
     } finally {
       setLoading(false);
     }
   };
+
+  // Check registration lock when email changes (debounced)
+  useEffect(() => {
+    if (!email || !email.includes("@")) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const status = await checkRegistrationLock(email);
+        if (status.locked) {
+          setLockData(status);
+          setError(status.message);
+        } else {
+          setLockData(null);
+        }
+      } catch (err) {
+        // Ignore check errors, the server-side check will catch it
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [email]);
 
   const handleGoogleSignup = async () => {
     try {
@@ -65,6 +128,8 @@ const Signup = () => {
     }
   };
 
+  const isLocked = lockData?.locked && countdown > 0;
+
   return (
     <div className="auth-container">
       <div className="auth-card">
@@ -75,6 +140,17 @@ const Signup = () => {
         </div>
 
         {error && <div className="error-message">{error}</div>}
+        {isLocked && (
+          <div className="lock-message">
+            <div className="lock-icon">&#128274;</div>
+            <p>Registration temporarily locked for this email</p>
+            <div className="countdown-timer">{formatCountdown(countdown)}</div>
+            <small>
+              Maximum {lockData.maxAttempts} registration attempts per 24 hours.
+              Try again when the timer expires.
+            </small>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
@@ -85,6 +161,7 @@ const Signup = () => {
               onChange={(e) => setName(e.target.value)}
               placeholder="Enter your full name"
               required
+              disabled={isLocked}
             />
           </div>
 
@@ -108,6 +185,7 @@ const Signup = () => {
               placeholder="Create a password"
               required
               minLength="6"
+              disabled={isLocked}
             />
           </div>
 
@@ -119,12 +197,17 @@ const Signup = () => {
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Confirm your password"
               required
+              disabled={isLocked}
             />
           </div>
 
           <div className="form-group">
             <label>I am a...</label>
-            <select value={role} onChange={(e) => setRole(e.target.value)}>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              disabled={isLocked}
+            >
               <option value="student">Student - Take exams</option>
               <option value="teacher">Teacher - Create & manage exams</option>
               <option value="proctor">Proctor - Monitor exam sessions</option>
@@ -139,27 +222,52 @@ const Signup = () => {
             </small>
           </div>
 
-          <button type="submit" disabled={loading} className="btn-primary">
-            {loading ? "Creating Account..." : "Sign Up"}
+          <button
+            type="submit"
+            disabled={loading || isLocked}
+            className="btn-primary"
+          >
+            {loading
+              ? "Creating Account..."
+              : isLocked
+                ? "Registration Locked"
+                : "Sign Up"}
           </button>
         </form>
 
         <div className="divider">
           <span>OR</span>
         </div>
-        
-        <button 
-          onClick={handleGoogleSignup} 
-          disabled={loading} 
+
+        <button
+          onClick={handleGoogleSignup}
+          disabled={loading}
           className="btn-google"
           type="button"
         >
-          <svg width="18" height="18" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-            <path fill="none" d="M0 0h48v48H0z"/>
+          <svg
+            width="18"
+            height="18"
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 48 48"
+          >
+            <path
+              fill="#EA4335"
+              d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+            />
+            <path
+              fill="#4285F4"
+              d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+            />
+            <path
+              fill="#FBBC05"
+              d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+            />
+            <path
+              fill="#34A853"
+              d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+            />
+            <path fill="none" d="M0 0h48v48H0z" />
           </svg>
           Continue with Google
         </button>

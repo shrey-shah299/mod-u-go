@@ -28,6 +28,15 @@ const userSchema = new mongoose.Schema({
   twoFactorSecret: {
     type: String,
   },
+  // Login failure tracking (REQ-19)
+  failedLoginAttempts: {
+    type: Number,
+    default: 0,
+  },
+  accountLockedUntil: {
+    type: Date,
+    default: null,
+  },
   // Profile and status
   isActive: {
     type: Boolean,
