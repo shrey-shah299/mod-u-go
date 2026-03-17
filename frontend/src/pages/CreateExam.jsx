@@ -37,6 +37,11 @@ const CreateExam = () => {
     passingScore: 50,
     maxAttempts: 1,
     autoSubmit: true,
+    // REQ-16: Proctoring Window defaults
+    proctoringWindow: {
+      preExamBufferMinutes: 5,
+      postSubmissionBufferMinutes: 2,
+    },
   });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -88,6 +93,17 @@ const CreateExam = () => {
 
   const updateSetting = (key, value) => {
     setSettings({ ...settings, [key]: value });
+  };
+
+  // REQ-16: Update proctoringWindow sub-settings
+  const updateProctoringWindow = (key, value) => {
+    setSettings({
+      ...settings,
+      proctoringWindow: {
+        ...settings.proctoringWindow,
+        [key]: value,
+      },
+    });
   };
 
   const addQuestion = () => {
@@ -447,6 +463,51 @@ const CreateExam = () => {
                 }
                 min="1"
               />
+            </div>
+          </div>
+
+          {/* REQ-16: Proctoring Window Configuration */}
+          <div className="form-section" style={{ marginTop: "1.5rem", background: "#f8f9fa", borderRadius: "8px", padding: "1rem 1.5rem", border: "1px solid #dee2e6" }}>
+            <h3 style={{ marginBottom: "0.5rem", fontSize: "1rem", fontWeight: 600 }}>🎥 Proctoring Window</h3>
+            <p style={{ marginBottom: "1rem", color: "#6c757d", fontSize: "0.875rem" }}>
+              Configure how long before and after the exam proctoring is active.
+            </p>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Pre-exam buffer (minutes)</label>
+                <input
+                  type="number"
+                  id="preExamBufferMinutes"
+                  value={settings.proctoringWindow?.preExamBufferMinutes ?? 5}
+                  onChange={(e) =>
+                    updateProctoringWindow(
+                      "preExamBufferMinutes",
+                      Math.min(15, Math.max(0, parseInt(e.target.value) || 0))
+                    )
+                  }
+                  min="0"
+                  max="15"
+                />
+                <small style={{ color: "#6c757d" }}>Proctoring starts this many minutes <strong>before</strong> the exam (0–15, default 5)</small>
+              </div>
+
+              <div className="form-group">
+                <label>Post-submission buffer (minutes)</label>
+                <input
+                  type="number"
+                  id="postSubmissionBufferMinutes"
+                  value={settings.proctoringWindow?.postSubmissionBufferMinutes ?? 2}
+                  onChange={(e) =>
+                    updateProctoringWindow(
+                      "postSubmissionBufferMinutes",
+                      Math.min(10, Math.max(0, parseInt(e.target.value) || 0))
+                    )
+                  }
+                  min="0"
+                  max="10"
+                />
+                <small style={{ color: "#6c757d" }}>Proctoring continues this many minutes <strong>after</strong> submission (0–10, default 2)</small>
+              </div>
             </div>
           </div>
         </div>

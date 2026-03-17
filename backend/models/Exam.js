@@ -115,6 +115,21 @@ const examSchema = new mongoose.Schema({
       type: Boolean,
       default: true,
     },
+    // REQ-16: Proctoring Window — configurable per exam by teacher
+    proctoringWindow: {
+      preExamBufferMinutes: {
+        type: Number,
+        default: 5,
+        min: 0,
+        max: 15,
+      },
+      postSubmissionBufferMinutes: {
+        type: Number,
+        default: 2,
+        min: 0,
+        max: 10,
+      },
+    },
   },
   // Access control
   allowedStudents: [

@@ -19,6 +19,31 @@ router.post("/start", verifyFirebaseToken, async (req, res) => {
 
     const { examId, submissionId, deviceInfo } = req.body;
 
+    // Fetch exam for proctoring window settings (REQ-16)
+    const exam = await Exam.findById(examId);
+    if (!exam) {
+      return res.status(404).json({ message: "Exam not found" });
+    }
+
+    // REQ-16: Validate that the current time is within the proctoring window
+    const proctoringSettings = exam.settings && exam.settings.proctoringWindow
+      ? exam.settings.proctoringWindow
+      : {};
+    const preBuffer = Math.min(
+      15,
+      Math.max(0, proctoringSettings.preExamBufferMinutes != null ? proctoringSettings.preExamBufferMinutes : 5)
+    );
+    const windowStart = new Date(
+      new Date(exam.scheduledAt).getTime() - preBuffer * 60 * 1000
+    );
+    const now = new Date();
+    if (now < windowStart) {
+      return res.status(403).json({
+        message: `Proctoring has not started yet. It begins ${preBuffer} minute(s) before the exam at ${windowStart.toISOString()}.`,
+        windowStart,
+      });
+    }
+
     // Check if session already exists
     let session = await ProctoringSession.findOne({
       studentId: user._id,
@@ -37,6 +62,9 @@ router.post("/start", verifyFirebaseToken, async (req, res) => {
       deviceInfo,
       status: "active",
     });
+
+    // REQ-16: Compute and store the proctoring window boundaries
+    session.initProctoringWindow(exam);
 
     await session.save();
     res.status(201).json({ session, message: "Proctoring session started" });
@@ -136,17 +164,38 @@ router.post("/end", verifyFirebaseToken, async (req, res) => {
 
     const { sessionId } = req.body;
 
-    const session = await ProctoringSession.findByIdAndUpdate(
-      sessionId,
-      { status: "ended", endedAt: new Date() },
-      { new: true },
-    );
-
+    const session = await ProctoringSession.findById(sessionId);
     if (!session) {
       return res.status(404).json({ message: "Session not found" });
     }
 
-    res.json({ session, message: "Proctoring session ended" });
+    const now = new Date();
+
+    // REQ-16: Compute windowEnd = submittedAt + postSubmissionBufferMinutes
+    const postBuffer = session.proctoringWindow && session.proctoringWindow.postSubmissionBufferMinutes != null
+      ? session.proctoringWindow.postSubmissionBufferMinutes
+      : 2;
+    const windowEnd = new Date(now.getTime() + postBuffer * 60 * 1000);
+
+    session.endedAt = now;
+    session.status = "ended";
+    if (session.proctoringWindow) {
+      session.proctoringWindow.windowEnd = windowEnd;
+    } else {
+      session.proctoringWindow = { windowEnd };
+    }
+
+    await session.save();
+
+    res.json({
+      session,
+      message: "Proctoring session ended",
+      proctoringWindow: {
+        windowEnd,
+        postSubmissionBufferMinutes: postBuffer,
+        note: `Proctoring data retained until ${windowEnd.toISOString()} (${postBuffer} min after submission).`,
+      },
+    });
   } catch (error) {
     console.error("Error ending proctoring session:", error);
     res.status(500).json({ message: "Server error", error: error.message });

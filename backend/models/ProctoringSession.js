@@ -24,6 +24,23 @@ const proctoringSessionSchema = new mongoose.Schema({
   endedAt: {
     type: Date,
   },
+  // REQ-16: Proctoring Window — resolved at session init time
+  proctoringWindow: {
+    windowStart: {
+      type: Date, // scheduledAt - preExamBufferMinutes
+    },
+    windowEnd: {
+      type: Date, // submittedAt + postSubmissionBufferMinutes (set on session end)
+    },
+    preExamBufferMinutes: {
+      type: Number,
+      default: 5,
+    },
+    postSubmissionBufferMinutes: {
+      type: Number,
+      default: 2,
+    },
+  },
   status: {
     type: String,
     enum: ["active", "paused", "ended", "flagged"],
@@ -210,6 +227,46 @@ proctoringSessionSchema.pre("save", function (next) {
   }
   next();
 });
+
+/**
+ * REQ-16: initProctoringWindow
+ * Computes and stores the proctoring window boundaries on session initialisation.
+ *
+ * @param {Object} exam - The Exam document for this session.
+ *   exam.scheduledAt            {Date}   - When the exam is scheduled to start.
+ *   exam.settings.proctoringWindow.preExamBufferMinutes     {Number} - Minutes before scheduledAt to start proctoring (0-15, default 5).
+ *   exam.settings.proctoringWindow.postSubmissionBufferMinutes {Number} - Minutes after submission to continue proctoring (0-10, default 2).
+ *
+ * windowStart = scheduledAt - preExamBufferMinutes
+ * windowEnd   = set later (on session end) = submittedAt + postSubmissionBufferMinutes
+ */
+proctoringSessionSchema.methods.initProctoringWindow = function (exam) {
+  const settings = exam.settings && exam.settings.proctoringWindow
+    ? exam.settings.proctoringWindow
+    : {};
+
+  // Apply defaults and clamp to allowed range (min/max are enforced by Exam schema,
+  // but we re-clamp here as a defence in depth measure)
+  const preBuffer = Math.min(
+    15,
+    Math.max(0, settings.preExamBufferMinutes != null ? settings.preExamBufferMinutes : 5)
+  );
+  const postBuffer = Math.min(
+    10,
+    Math.max(0, settings.postSubmissionBufferMinutes != null ? settings.postSubmissionBufferMinutes : 2)
+  );
+
+  const windowStart = new Date(
+    new Date(exam.scheduledAt).getTime() - preBuffer * 60 * 1000
+  );
+
+  this.proctoringWindow = {
+    windowStart,
+    windowEnd: null, // Will be set when the session ends
+    preExamBufferMinutes: preBuffer,
+    postSubmissionBufferMinutes: postBuffer,
+  };
+};
 
 // Index for efficient queries
 proctoringSessionSchema.index({ studentId: 1, examId: 1 });
