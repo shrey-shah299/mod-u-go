@@ -481,4 +481,61 @@ router.put("/:id/review", verifyFirebaseToken, async (req, res) => {
   }
 });
 
+// Unlock a locked submission (Teacher/Admin only)
+router.put("/:id/unlock", verifyFirebaseToken, async (req, res) => {
+  try {
+    const user = await User.findOne({ firebaseUid: req.user.uid });
+    if (!user || !["teacher", "admin"].includes(user.role)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const submission = await Submission.findById(req.params.id).populate(
+      "examId",
+    );
+
+    if (!submission) {
+      return res.status(404).json({ message: "Submission not found" });
+    }
+
+    if (submission.status !== "locked") {
+      return res
+        .status(400)
+        .json({ message: "Submission is not locked" });
+    }
+
+    // Teachers can only unlock submissions for their own exams
+    if (
+      user.role === "teacher" &&
+      submission.examId.teacherId.toString() !== user._id.toString()
+    ) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    // Unlock the submission — set to "submitted" so the teacher can grade it
+    submission.status = "submitted";
+    submission.lockInfo.unlockedAt = new Date();
+    submission.lockInfo.unlockedBy = user._id;
+
+    await submission.save();
+
+    // Notify the student
+    await Notification.create({
+      userId: submission.studentId,
+      type: "exam_graded",
+      title: "Exam Unlocked",
+      message: `Your locked exam "${submission.examId.title}" has been reviewed by your teacher. You may view your results.`,
+      data: {
+        examId: submission.examId._id,
+        submissionId: submission._id,
+      },
+      priority: "high",
+    });
+
+    res.json({ submission, message: "Submission unlocked successfully" });
+  } catch (error) {
+    console.error("Error unlocking submission:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
 module.exports = router;

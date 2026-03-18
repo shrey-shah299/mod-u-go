@@ -75,10 +75,12 @@ const ExamSubmissions = () => {
     if (filterStatus === "flagged") return s.isFlagged;
     if (filterStatus === "submitted") return s.status === "submitted";
     if (filterStatus === "in_progress") return s.status === "in_progress";
+    if (filterStatus === "locked") return s.status === "locked";
     return true;
   });
 
   const getStatusClass = (submission) => {
+    if (submission.status === "locked") return "status-locked";
     if (submission.isFlagged) return "status-flagged";
     if (submission.status === "submitted") return "status-submitted";
     if (submission.status === "graded") return "status-graded";
@@ -155,6 +157,9 @@ const ExamSubmissions = () => {
           <option value="flagged">
             Flagged ({submissions.filter((s) => s.isFlagged).length})
           </option>
+          <option value="locked">
+            Locked ({submissions.filter((s) => s.status === "locked").length})
+          </option>
         </select>
       </div>
 
@@ -198,7 +203,7 @@ const ExamSubmissions = () => {
                       <span
                         className={`status-badge ${submission.status} ${submission.isFlagged ? "flagged" : ""}`}
                       >
-                        {submission.isFlagged ? "[!] " : ""}
+                        {submission.status === "locked" ? "🔒 " : submission.isFlagged ? "[!] " : ""}
                         {submission.status}
                       </span>
                     </td>
@@ -430,15 +435,49 @@ const ExamSubmissions = () => {
                   </p>
                 )}
                 <div className="review-actions">
+                  {selectedSubmission.status === "locked" && (
+                    <div className="lock-info-section">
+                      <h4 className="lock-info-title">🔒 This exam was auto-locked</h4>
+                      <p className="lock-info-reason">
+                        <strong>Reason:</strong> {selectedSubmission.lockInfo?.lockReason || "Max violations reached"}
+                      </p>
+                      <p className="lock-info-time">
+                        <strong>Locked at:</strong>{" "}
+                        {selectedSubmission.lockInfo?.lockedAt
+                          ? new Date(selectedSubmission.lockInfo.lockedAt).toLocaleString()
+                          : "Unknown"}
+                      </p>
+                      <button
+                        onClick={async () => {
+                          if (!window.confirm("Are you sure you want to unlock this submission? It will be moved to 'submitted' status for grading."))
+                            return;
+                          try {
+                            const token = await getAuthToken();
+                            await examService.unlockSubmission(token, selectedSubmission._id);
+                            alert("Submission unlocked successfully. You can now grade it.");
+                            setSelectedSubmission(null);
+                            fetchData();
+                          } catch (error) {
+                            alert("Error unlocking submission: " + (error.response?.data?.message || error.message));
+                          }
+                        }}
+                        className="btn-unlock"
+                      >
+                        🔓 Unlock Submission
+                      </button>
+                    </div>
+                  )}
                   <button
                     onClick={() => handleReviewSubmission(false)}
                     className="btn-approve"
+                    disabled={selectedSubmission.status === "locked"}
                   >
                     Approve
                   </button>
                   <button
                     onClick={() => handleReviewSubmission(true)}
                     className="btn-flag"
+                    disabled={selectedSubmission.status === "locked"}
                   >
                     Flag for Review
                   </button>

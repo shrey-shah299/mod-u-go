@@ -682,6 +682,68 @@ td.warning {
   border-color: #f87171;
 }
 
+/* Locked Status */
+.status-badge.locked {
+  background: #450a0a;
+  color: #fecaca;
+  font-weight: 700;
+}
+
+.status-locked {
+  background: #fef2f2 !important;
+}
+
+/* Lock info section in modal */
+.lock-info-section {
+  width: 100%;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 12px;
+}
+
+.lock-info-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #991b1b;
+}
+
+.lock-info-reason,
+.lock-info-time {
+  margin: 4px 0;
+  font-size: 13px;
+  color: #374151;
+}
+
+/* Unlock button */
+.btn-unlock {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 10px 22px;
+  background: #2d6a4f;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.15s;
+}
+
+.btn-unlock:hover {
+  background: #1b4332;
+  transform: translateY(-1px);
+}
+
+/* Disabled review buttons */
+.btn-approve:disabled,
+.btn-flag:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* Loading */
 .loading {
   display: flex;

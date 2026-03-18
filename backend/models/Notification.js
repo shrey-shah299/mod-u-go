@@ -19,6 +19,7 @@ const notificationSchema = new mongoose.Schema({
       "account_update",
       "system_announcement",
       "flagged_submission",
+      "exam_locked",
     ],
     required: true,
   },

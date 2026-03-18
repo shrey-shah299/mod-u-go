@@ -32,6 +32,8 @@ const TakeExam = () => {
   const [calibrationRequired, setCalibrationRequired] = useState(false);
   const [calibrationComplete, setCalibrationComplete] = useState(false);
   const [faceStatus, setFaceStatus] = useState("idle"); // idle|ok|no_face|multiple_faces|looking_away
+  const [isLocked, setIsLocked] = useState(false);
+  const [lockReason, setLockReason] = useState("");
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -147,6 +149,16 @@ const TakeExam = () => {
       setFullscreenExitCount(
         submissionData.submission.fullscreenExitCount || 0,
       );
+
+      // Check if submission is already locked (page reload scenario)
+      if (submissionData.submission.status === "locked") {
+        setIsLocked(true);
+        setLockReason(
+          submissionData.submission.lockInfo?.lockReason ||
+            "Your exam has been locked due to violations.",
+        );
+        return;
+      }
 
       if (exam.settings?.requireWebcam !== false) {
         await startProctoring(token, exam._id, submissionData.submission._id);
@@ -354,8 +366,18 @@ const TakeExam = () => {
       // Reconcile with the authoritative server value
       if (response.session?.trustScore !== undefined) {
         setTrustScore(response.session.trustScore);
-        return response.session.trustScore;
       }
+
+      // Check if the server locked the exam
+      if (response.locked) {
+        setIsLocked(true);
+        setLockReason(response.lockReason || "Your exam has been locked due to excessive violations.");
+        // Auto-submit the exam when locked
+        handleSubmit(true);
+        return response.session?.trustScore ?? null;
+      }
+
+      return response.session?.trustScore ?? null;
     } catch (error) {
       console.error("Error logging proctoring event:", error);
     }
@@ -471,17 +493,22 @@ const TakeExam = () => {
     if (!isCurrentlyFullscreen && examRef.current && !submittingRef.current && !document.hidden && monitoringEnabledRef.current) {
       setFullscreenExitCount((prev) => {
         const newCount = prev + 1;
+        const remaining = 5 - newCount;
         logProctoringEvent(
           "fullscreen_exit",
           "high",
           `Exited fullscreen (count: ${newCount})`,
         );
+        if (remaining > 0) {
+          alert(
+            `Warning: You exited fullscreen mode (${newCount}/5). ${remaining} more and your exam will be auto-locked!`,
+          );
+        }
         return newCount;
       });
-      alert(
-        "Warning: You exited fullscreen mode. This action has been recorded.",
-      );
-      setTimeout(() => requestFullscreen(), 500);
+      if (!isLocked) {
+        setTimeout(() => requestFullscreen(), 500);
+      }
     }
   }, []);
 
@@ -502,14 +529,16 @@ const TakeExam = () => {
     if (document.hidden) {
       focusLostAtRef.current = Date.now();
       setTabSwitchCount((prev) => prev + 1);
+      const remaining = 5 - (tabSwitchCount + 1);
       const newScore = await logProctoringEvent(
         "tab_switch",
         "high",
         `Tab switched (count: ${tabSwitchCount + 1})`,
       );
       const scoreInfo = newScore !== null ? ` Trust score: ${newScore}%` : "";
+      const lockWarning = remaining > 0 ? ` ${remaining} more and your exam will be auto-locked!` : "";
       showFocusWarning(
-        `Warning: Tab switch detected (-10 trust score points).${scoreInfo} This event has been queued for teacher review.`,
+        `Warning: Tab switch detected (${tabSwitchCount + 1}/5).${scoreInfo}${lockWarning}`,
       );
     } else {
       // User returned to the exam tab
@@ -864,6 +893,43 @@ const TakeExam = () => {
 
   if (!calibrationComplete && exam.settings?.requireWebcam !== false && !showInstructions) {
     return <div className="loading">Initializing proctoring session...</div>;
+  }
+
+  // Show locked overlay
+  if (isLocked) {
+    return (
+      <div className="exam-locked-overlay">
+        <div className="locked-content">
+          <div className="locked-icon">🔒</div>
+          <h1>Exam Locked</h1>
+          <p className="locked-reason">{lockReason}</p>
+          <div className="locked-details">
+            <p>Your answers have been automatically submitted.</p>
+            <p>Your teacher has been notified and will review your submission.</p>
+          </div>
+          <div className="locked-stats">
+            <div className="locked-stat">
+              <span className="stat-label">Tab Switches</span>
+              <span className="stat-value">{tabSwitchCount}</span>
+            </div>
+            <div className="locked-stat">
+              <span className="stat-label">Fullscreen Exits</span>
+              <span className="stat-value">{fullscreenExitCount}</span>
+            </div>
+            <div className="locked-stat">
+              <span className="stat-label">Trust Score</span>
+              <span className="stat-value">{trustScore}%</span>
+            </div>
+          </div>
+          <button
+            className="btn-return-dashboard"
+            onClick={() => navigate("/dashboard", { replace: true })}
+          >
+            Return to Dashboard
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const currentQ = exam.questions[currentQuestion];

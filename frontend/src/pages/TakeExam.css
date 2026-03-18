@@ -675,3 +675,120 @@
     height: 75px;
   }
 }
+
+/* ── Exam Locked Overlay ─────────────────────────────────── */
+.exam-locked-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.locked-content {
+  text-align: center;
+  max-width: 500px;
+  padding: 48px 40px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.locked-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.locked-content h1 {
+  color: #ef4444;
+  font-size: 28px;
+  font-weight: 800;
+  margin: 0 0 12px;
+  letter-spacing: -0.02em;
+}
+
+.locked-reason {
+  color: #fbbf24;
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 20px;
+  line-height: 1.5;
+}
+
+.locked-details {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 28px;
+}
+
+.locked-details p {
+  margin: 6px 0;
+}
+
+.locked-stats {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  margin-bottom: 32px;
+}
+
+.locked-stat {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 14px 20px;
+  min-width: 100px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.locked-stat .stat-label {
+  display: block;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.locked-stat .stat-value {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+  color: #ef4444;
+  font-variant-numeric: tabular-nums;
+}
+
+.btn-return-dashboard {
+  display: inline-block;
+  padding: 14px 36px;
+  background: #2d3748;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.15s;
+}
+
+.btn-return-dashboard:hover {
+  background: #4a5568;
+  transform: translateY(-1px);
+}

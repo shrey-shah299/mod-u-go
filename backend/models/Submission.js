@@ -78,7 +78,7 @@ const submissionSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ["in_progress", "submitted", "graded", "flagged"],
+    enum: ["in_progress", "submitted", "graded", "flagged", "locked"],
     default: "in_progress",
   },
   startedAt: {
@@ -134,6 +134,26 @@ const submissionSchema = new mongoose.Schema({
   },
   flagReason: {
     type: String,
+  },
+  // Auto-lock info
+  lockInfo: {
+    lockedAt: {
+      type: Date,
+    },
+    lockReason: {
+      type: String,
+    },
+    lockedBySystem: {
+      type: Boolean,
+      default: false,
+    },
+    unlockedAt: {
+      type: Date,
+    },
+    unlockedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
   },
 });
 

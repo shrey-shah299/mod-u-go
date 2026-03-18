@@ -116,6 +116,15 @@ export const examService = {
     return response.data;
   },
 
+  unlockSubmission: async (token, submissionId) => {
+    const response = await api.put(
+      `/submissions/${submissionId}/unlock`,
+      {},
+      authHeader(token),
+    );
+    return response.data;
+  },
+
   // Notification operations
   getNotifications: async (token, page = 1, unreadOnly = false) => {
     const response = await api.get(

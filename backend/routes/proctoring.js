@@ -131,7 +131,7 @@ router.post("/event", verifyFirebaseToken, async (req, res) => {
     await session.save();
 
     // Also update submission
-    await Submission.findByIdAndUpdate(session.submissionId, {
+    const submissionUpdate = {
       $push: {
         proctoringEvents: {
           type: eventType,
@@ -145,9 +145,61 @@ router.post("/event", verifyFirebaseToken, async (req, res) => {
         tabSwitchCount: eventType === "tab_switch" ? 1 : 0,
         fullscreenExitCount: eventType === "fullscreen_exit" ? 1 : 0,
       },
-    });
+    };
 
-    res.json({ session, message: "Event logged" });
+    const updatedSubmission = await Submission.findByIdAndUpdate(
+      session.submissionId,
+      submissionUpdate,
+      { new: true },
+    );
+
+    // ── Auto-lock check ──────────────────────────────────────────────────
+    const MAX_TAB_SWITCHES = 5;
+    const MAX_FULLSCREEN_EXITS = 5;
+    let locked = false;
+    let lockReason = "";
+
+    if (updatedSubmission && updatedSubmission.status !== "locked") {
+      if (updatedSubmission.tabSwitchCount >= MAX_TAB_SWITCHES) {
+        lockReason = `Exceeded maximum tab switches (${updatedSubmission.tabSwitchCount}/${MAX_TAB_SWITCHES})`;
+      } else if (updatedSubmission.fullscreenExitCount >= MAX_FULLSCREEN_EXITS) {
+        lockReason = `Exceeded maximum fullscreen exits (${updatedSubmission.fullscreenExitCount}/${MAX_FULLSCREEN_EXITS})`;
+      }
+
+      if (lockReason) {
+        locked = true;
+
+        // Lock the submission
+        updatedSubmission.status = "locked";
+        updatedSubmission.isFlagged = true;
+        updatedSubmission.flagReason = lockReason;
+        updatedSubmission.lockInfo = {
+          lockedAt: new Date(),
+          lockReason,
+          lockedBySystem: true,
+        };
+        await updatedSubmission.save();
+
+        // Notify the exam's teacher
+        const exam = await Exam.findById(session.examId);
+        const student = await User.findById(session.studentId);
+        if (exam) {
+          await Notification.create({
+            userId: exam.teacherId,
+            type: "exam_locked",
+            title: "Exam Auto-Locked",
+            message: `${student?.name || "A student"}'s exam "${exam.title}" has been auto-locked: ${lockReason}`,
+            data: {
+              examId: exam._id,
+              submissionId: updatedSubmission._id,
+            },
+            priority: "urgent",
+          });
+        }
+      }
+    }
+
+    res.json({ session, message: "Event logged", locked, lockReason });
   } catch (error) {
     console.error("Error logging proctoring event:", error);
     res.status(500).json({ message: "Server error", error: error.message });
